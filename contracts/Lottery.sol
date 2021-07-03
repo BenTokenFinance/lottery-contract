@@ -20,7 +20,7 @@ contract Lottery is LotteryOwnable, Initializable {
     // Allocation for first/sencond/third reward
     uint8[3] public allocation;
     // The TOKEN to buy lottery
-    IERC20 public cake;
+    IERC20 public gben;
     // The Lottery NFT for tickets
     LotteryNFT public lotteryNFT;
     // adminAddress
@@ -62,25 +62,26 @@ contract Lottery is LotteryOwnable, Initializable {
     event Reset(uint256 indexed issueIndex);
     event MultiClaim(address indexed user, uint256 amount);
     event MultiBuy(address indexed user, uint256 amount);
+    event Burn(uint256 amount);
 
     constructor() public {
     }
 
     function initialize(
-        IERC20 _cake,
+        IERC20 _gben,
         LotteryNFT _lottery,
         uint256 _minPrice,
         uint8 _maxNumber,
         address _owner,
         address _adminAddress
     ) public initializer {
-        cake = _cake;
+        gben = _gben;
         lotteryNFT = _lottery;
         minPrice = _minPrice;
         maxNumber = _maxNumber;
         adminAddress = _adminAddress;
         lastTimestamp = block.timestamp;
-        allocation = [60, 20, 10];
+        allocation = [50, 20, 10];
         initOwner(_owner);
     }
 
@@ -106,10 +107,28 @@ contract Lottery is LotteryOwnable, Initializable {
         winningNumbers[3]=0;
         drawingPhase = false;
         issueIndex = issueIndex +1;
-        if(getMatchingRewardAmount(issueIndex-1, 4) == 0) {
-            uint256 amount = getTotalRewards(issueIndex-1).mul(allocation[0]).div(100);
+
+        uint256 totalRewards = getTotalRewards(issueIndex-1);
+        // move unused price pot to the next round 
+        if(getMatchingRewardAmount(issueIndex-1, 2) == 0) {
+            uint256 amount = totalRewards.mul(allocation[2]).div(100);
             internalBuy(amount, nullTicket);
         }
+        if(getMatchingRewardAmount(issueIndex-1, 3) == 0) {
+            uint256 amount = totalRewards.mul(allocation[1]).div(100);
+            internalBuy(amount, nullTicket);
+        }
+        if(getMatchingRewardAmount(issueIndex-1, 4) == 0) {
+            uint256 amount = totalRewards.mul(allocation[0]).div(100);
+            internalBuy(amount, nullTicket);
+        }
+        // burn
+        uint256 burnAmount = totalRewards.mul(100-allocation[0]-allocation[1]-allocation[2]).div(100);
+        if (burnAmount>0) {
+            gben.safeTransfer(address(gben), burnAmount);
+            emit Burn(burnAmount);
+        }
+
         emit Reset(issueIndex);
     }
 
@@ -221,12 +240,13 @@ contract Lottery is LotteryOwnable, Initializable {
         for (uint i = 0; i < keyLengthForEachBuy; i++) {
             userBuyAmountSum[issueIndex][userNumberIndex[i]]=userBuyAmountSum[issueIndex][userNumberIndex[i]].add(_price);
         }
-        cake.safeTransferFrom(address(msg.sender), address(this), _price);
+        gben.safeTransferFrom(address(msg.sender), address(this), _price);
         emit Buy(msg.sender, tokenId);
     }
 
     function  multiBuy(uint256 _price, uint8[4][] memory _numbers) external {
         require (!drawed(), 'drawed, can not buy now');
+        require (!drawingPhase, 'drawing, can not buy now');
         require (_price >= minPrice, 'price must above minPrice');
         uint256 totalPrice  = 0;
         for (uint i = 0; i < _numbers.length; i++) {
@@ -247,7 +267,7 @@ contract Lottery is LotteryOwnable, Initializable {
                 userBuyAmountSum[issueIndex][numberIndexKey[k]]=userBuyAmountSum[issueIndex][numberIndexKey[k]].add(_price);
             }
         }
-        cake.safeTransferFrom(address(msg.sender), address(this), totalPrice);
+        gben.safeTransferFrom(address(msg.sender), address(this), totalPrice);
         emit MultiBuy(msg.sender, totalPrice);
     }
 
@@ -257,7 +277,7 @@ contract Lottery is LotteryOwnable, Initializable {
         uint256 reward = getRewardView(_tokenId);
         lotteryNFT.claimReward(_tokenId);
         if(reward>0) {
-            cake.safeTransfer(address(msg.sender), reward);
+            gben.safeTransfer(address(msg.sender), reward);
         }
         emit Claim(msg.sender, _tokenId, reward);
     }
@@ -267,14 +287,14 @@ contract Lottery is LotteryOwnable, Initializable {
         for (uint i = 0; i < _tickets.length; i++) {
             require (msg.sender == lotteryNFT.ownerOf(_tickets[i]), "not from owner");
             require (!lotteryNFT.getClaimStatus(_tickets[i]), "claimed");
+            lotteryNFT.claimReward(_tickets[i]);
             uint256 reward = getRewardView(_tickets[i]);
             if(reward>0) {
                 totalReward = reward.add(totalReward);
             }
         }
-        lotteryNFT.multiClaimReward(_tickets);
         if(totalReward>0) {
-            cake.safeTransfer(address(msg.sender), totalReward);
+            gben.safeTransfer(address(msg.sender), totalReward);
         }
         emit MultiClaim(msg.sender, totalReward);
     }
@@ -363,29 +383,29 @@ contract Lottery is LotteryOwnable, Initializable {
     }
 
 
-    // Update admin address by the previous dev.
+    // Update admin address.
     function setAdmin(address _adminAddress) public onlyOwner {
         adminAddress = _adminAddress;
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
-    function adminWithdraw(uint256 _amount) public onlyAdmin {
-        cake.safeTransfer(address(msg.sender), _amount);
+    function adminWithdraw(uint256 _amount) public onlyOwner {
+        gben.safeTransfer(address(msg.sender), _amount);
         emit DevWithdraw(msg.sender, _amount);
     }
 
     // Set the minimum price for one ticket
-    function setMinPrice(uint256 _price) external onlyAdmin {
+    function setMinPrice(uint256 _price) external onlyOwner {
         minPrice = _price;
     }
 
-    // Set the minimum price for one ticket
-    function setMaxNumber(uint8 _maxNumber) external onlyAdmin {
+    // Set the maximum number for one ticket
+    function setMaxNumber(uint8 _maxNumber) external onlyOwner {
         maxNumber = _maxNumber;
     }
 
     // Set the allocation for one reward
-    function setAllocation(uint8 _allcation1, uint8 _allcation2, uint8 _allcation3) external onlyAdmin {
+    function setAllocation(uint8 _allcation1, uint8 _allcation2, uint8 _allcation3) external onlyOwner {
         allocation = [_allcation1, _allcation2, _allcation3];
     }
 
