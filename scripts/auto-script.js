@@ -1,8 +1,8 @@
 const lotteryAbi = require("./lottery.json");
 const Web3 = require("web3");
 
-const fromAddress = "0x35f16A46D3cf19010d28578A8b02DfA3CB4095a1";
-const toAddress = "0x3C3f2049cc17C136a604bE23cF7E42745edf3b91";
+const fromAddress = "0xA1fc0e50D10f5A8887367a50297Abc9F7c545009";
+const toAddress = "0xB8c1b020921155373Ac667a8Aa29A4b0F3637a80";
 
 const web3 = new Web3(
   new Web3.providers.HttpProvider(
@@ -73,7 +73,7 @@ async function main() {
     await sleep(10000);
     const time = Date.parse(new Date()) / 1000;
 
-    if((time - 10800) % 86400 < 18) {
+    if((time + 75600) % 259200 < 18) {
       try {
         await reset()
       }
@@ -82,7 +82,7 @@ async function main() {
       }
     }
 
-    else if((time - 7200) % 86400 < 18) {
+    else if((time + 79200) % 259200 < 18) {
       try {
         await enterDrawing()
         await drawing()
